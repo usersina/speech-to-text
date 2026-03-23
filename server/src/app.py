@@ -14,6 +14,27 @@ from qwen_asr import Qwen3ASRModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+class EndpointFilter(logging.Filter):
+    """Filter out access logs for health endpoints to reduce noise."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: ANN401
+        try:
+            args = getattr(record, "args", None)
+            if args and len(args) >= 3:
+                path = args[2]
+                # suppress both /health and /api/health
+                if path in ("/health", "/api/health"):
+                    return False
+        except Exception:
+            # If anything unexpected, don't block the log
+            return True
+        return True
+
+
+# Attach filter to uvicorn access logger
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+
 _SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".webm"}
 
 # Full list of languages supported by Qwen3-ASR
