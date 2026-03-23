@@ -1,193 +1,339 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import Select from 'react-select'
 
-import { AudioVisualizer } from './components/AudioVisualizer'
-import { LanguageSelector } from './components/LanguageSelector'
+const API_BASE = 'http://localhost:8000'
 
-const IS_WEBGPU_AVAILABLE = 'gpu' in navigator
-const WHISPER_SAMPLING_RATE = 16_000
+interface LanguageOption {
+  value: string | null
+  label: string
+}
 
-function App() {
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
+interface TranscriptChunk {
+  id: number
+  text: string
+  language: string | null
+  timestamp: Date
+}
 
-  // server-only mode: always ready
-  const status = 'ready'
+const AUTO_OPTION: LanguageOption = { value: null, label: 'Auto-detect' }
+const MAX_RECORDING_MS = 20 * 60 * 1000 // 20 minutes
 
-  const [text, setText] = useState('')
-  const [language, setLanguage] = useState('en')
+export default function App() {
+  const [languages, setLanguages] = useState<LanguageOption[]>([AUTO_OPTION])
+  const [selectedLanguage, setSelectedLanguage] =
+    useState<LanguageOption>(AUTO_OPTION)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const [transcript, setTranscript] = useState<TranscriptChunk[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null)
+  const [elapsed, setElapsed] = useState(0) // seconds
 
-  const [recording, setRecording] = useState(false)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [chunks, setChunks] = useState<Blob[]>([])
-  // always use server-side transcription
-  const [useServer, setUseServer] = useState(true)
-  const [stream, setStream] = useState<MediaStream | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const maxTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const chunkCounterRef = useRef(0)
+  const transcriptEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (recorderRef.current) return
-
-    if (navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices
-        .getUserMedia({ audio: true })
-        .then((s) => {
-          setStream(s)
-
-          recorderRef.current = new MediaRecorder(s)
-          audioContextRef.current = new AudioContext({
-            sampleRate: WHISPER_SAMPLING_RATE,
-          })
-
-          recorderRef.current.onstart = () => {
-            setRecording(true)
-            setChunks([])
-          }
-          recorderRef.current.ondataavailable = (e: BlobEvent) => {
-            if (e.data.size > 0) {
-              setChunks((prev) => [...prev, e.data])
-            } else {
-              setTimeout(() => {
-                recorderRef.current?.requestData()
-              }, 25)
-            }
-          }
-
-          recorderRef.current.onstop = () => {
-            setRecording(false)
-          }
-          // start recording immediately in server-only mode
-          try {
-            recorderRef.current.start()
-          } catch (err) {
-            // ignore start errors (e.g. already started)
-            // log at debug level for diagnostics
-            console.debug('recorder start failed', err)
-          }
-        })
-        .catch((err) => console.error('The following error occurred: ', err))
-    } else {
-      console.error('getUserMedia not supported on your browser!')
+    const check = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/health`)
+        setServerOnline(res.ok)
+      } catch {
+        setServerOnline(false)
+      }
     }
-
-    return () => {
-      recorderRef.current?.stop()
-      recorderRef.current = null
-    }
+    check()
+    const interval = setInterval(check, 10000)
+    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
-    if (!recorderRef.current) return
-    if (!recording) return
-    if (isProcessing) return
-    if (status !== 'ready') return
-
-    if (chunks.length > 0) {
-      const blob = new Blob(chunks, { type: recorderRef.current.mimeType })
-
-      // Always send to server-side transcription
-      ;(async () => {
-        setIsProcessing(true)
-        try {
-          const fd = new FormData()
-          fd.append('file', blob, 'recording.wav')
-          fd.append('language', language)
-          const res = await fetch('http://localhost:8000/transcribe', {
-            method: 'POST',
-            body: fd,
-          })
-          if (!res.ok) {
-            throw new Error(await res.text())
-          }
-          const j = await res.json()
-          setText(j.text || j?.result || '')
-        } catch (err: unknown) {
-          console.error(err)
-          const message = err instanceof Error ? err.message : String(err)
-          setText('Error: ' + message)
-        } finally {
-          setIsProcessing(false)
-          recorderRef.current?.requestData()
-        }
-      })()
-    } else {
-      recorderRef.current?.requestData()
-    }
-  }, [status, recording, isProcessing, chunks, language, useServer])
-
-  return IS_WEBGPU_AVAILABLE ? (
-    <div className="flex flex-col justify-end h-screen mx-auto text-gray-800 bg-white dark:text-gray-200 dark:bg-gray-900">
-      {
-        <div className="relative flex flex-col items-center justify-center h-full overflow-auto scrollbar-thin">
-          <div className="flex flex-col items-center mb-1 text-center max-w-100">
-            <img
-              src="logo.png"
-              width="50%"
-              height="auto"
-              className="block"
-            ></img>
-            <h1 className="mb-1 text-4xl font-bold">Whisper WebGPU</h1>
-            <h2 className="text-xl font-semibold">
-              Real-time in-browser speech recognition
-            </h2>
-          </div>
-
-          <div className="flex flex-col items-center px-4">
-            <p className="mb-4 text-center max-w-120">
-              This app uses the local `/transcribe` API for transcription.
-            </p>
-
-            <div className="p-2 w-125">
-              <AudioVisualizer
-                className="w-full mb-3 rounded-lg"
-                stream={stream}
-              />
-              {status === 'ready' && (
-                <div className="relative">
-                  <p className="w-full h-20 p-2 overflow-y-auto border rounded-lg overflow-wrap-anywhere">
-                    {text}
-                  </p>
-                </div>
-              )}
-            </div>
-            {status === 'ready' && (
-              <div className="relative flex items-center justify-around w-full gap-4 py-2">
-                <LanguageSelector
-                  language={language}
-                  setLanguage={(e: string) => {
-                    recorderRef.current?.stop()
-                    setLanguage(e)
-                    recorderRef.current?.start()
-                  }}
-                />
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={useServer}
-                    onChange={(ev) => setUseServer(ev.target.checked)}
-                  />
-                  <span className="text-sm">Use Local Server</span>
-                </label>
-                <button
-                  className="px-3 py-1 border rounded-lg cursor-pointer"
-                  onClick={() => {
-                    recorderRef.current?.stop()
-                    recorderRef.current?.start()
-                  }}
-                >
-                  Reset
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/languages`)
+        const data = await res.json()
+        const opts: LanguageOption[] = (data.languages as string[]).map(
+          (l) => ({
+            value: l,
+            label: l,
+          }),
+        )
+        setLanguages([AUTO_OPTION, ...opts])
+      } catch {
+        /* keep AUTO_OPTION only */
       }
-    </div>
-  ) : (
-    <div className="fixed w-screen h-screen bg-black z-10 bg-opacity-[92%] text-white text-2xl font-semibold flex justify-center items-center text-center">
-      WebGPU is not supported
-      <br />
-      by this browser :(
+    }
+    load()
+  }, [])
+
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [transcript])
+
+  const sendChunk = useCallback(
+    async (blob: Blob) => {
+      if (blob.size < 1000) return
+      setIsTranscribing(true)
+      try {
+        const form = new FormData()
+        form.append('file', blob, 'chunk.webm')
+        if (selectedLanguage.value)
+          form.append('language', selectedLanguage.value)
+
+        const res = await fetch(`${API_BASE}/transcribe`, {
+          method: 'POST',
+          body: form,
+        })
+        if (!res.ok) {
+          const err = await res.json()
+          throw new Error(err.detail ?? 'Transcription failed')
+        }
+        const data = await res.json()
+        if (data.text?.trim()) {
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: chunkCounterRef.current++,
+              text: data.text.trim(),
+              language: data.language ?? null,
+              timestamp: new Date(),
+            },
+          ])
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Unknown error')
+      } finally {
+        setIsTranscribing(false)
+      }
+    },
+    [selectedLanguage],
+  )
+
+  const stopRecording = useCallback(() => {
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current)
+      chunkIntervalRef.current = null
+    }
+    if (maxTimeoutRef.current) {
+      clearTimeout(maxTimeoutRef.current)
+      maxTimeoutRef.current = null
+    }
+    if (elapsedIntervalRef.current) {
+      clearInterval(elapsedIntervalRef.current)
+      elapsedIntervalRef.current = null
+    }
+    if (mediaRecorderRef.current?.state !== 'inactive') {
+      mediaRecorderRef.current?.stop()
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+    setIsRecording(false)
+    setElapsed(0)
+  }, [])
+
+  const startRecording = useCallback(async () => {
+    setError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm'
+
+      const recorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorderRef.current = recorder
+      chunksRef.current = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
+
+      recorder.start(500)
+
+      // Buffer chunks locally and send a single blob when recording stops
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType })
+        chunksRef.current = []
+        if (blob.size > 1000) {
+          await sendChunk(blob)
+        }
+      }
+
+      // Auto-stop after MAX_RECORDING_MS
+      maxTimeoutRef.current = setTimeout(() => {
+        stopRecording()
+        setError('Recording stopped automatically after 20 minutes.')
+      }, MAX_RECORDING_MS)
+
+      // Elapsed timer (tick every second)
+      setElapsed(0)
+      elapsedIntervalRef.current = setInterval(() => {
+        setElapsed((s) => s + 1)
+      }, 1000)
+
+      setIsRecording(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Microphone access denied')
+    }
+  }, [sendChunk, stopRecording])
+
+  const fullText = transcript.map((c) => c.text).join(' ')
+
+  const formatElapsed = (s: number) => {
+    const m = Math.floor(s / 60)
+      .toString()
+      .padStart(2, '0')
+    const sec = (s % 60).toString().padStart(2, '0')
+    return `${m}:${sec}`
+  }
+
+  return (
+    <div className="app">
+      <div className="noise" />
+
+      <header className="header">
+        <div className="status-pill">
+          <span
+            className={`dot ${serverOnline === true ? 'on' : serverOnline === false ? 'off' : 'wait'}`}
+          />
+          {serverOnline === true
+            ? 'Live'
+            : serverOnline === false
+              ? 'Offline'
+              : '…'}
+        </div>
+        <div className="wordmark">
+          <span className="wm-s">s</span>peak
+        </div>
+        <div className="model-badge">Qwen3-ASR · 1.7B</div>
+      </header>
+
+      <main className="main">
+        <div className="lang-field">
+          <label className="field-label">Language</label>
+          <Select<LanguageOption>
+            options={languages}
+            value={selectedLanguage}
+            onChange={(opt) => opt && setSelectedLanguage(opt)}
+            isDisabled={isRecording}
+            classNamePrefix="ls"
+            isSearchable
+            menuPlacement="auto"
+          />
+        </div>
+
+        <div className="center-controls">
+          <button
+            className={`rec-btn ${isRecording ? 'active' : ''}`}
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={serverOnline === false}
+            aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+          >
+            <span className="rec-icon">
+              {isRecording ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  width="22"
+                  height="22"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2.5" />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  width="22"
+                  height="22"
+                >
+                  <circle cx="12" cy="12" r="5.5" />
+                </svg>
+              )}
+            </span>
+            <span>{isRecording ? 'Stop' : 'Start'}</span>
+          </button>
+
+          {isRecording && (
+            <div className="live-bar">
+              <span className="live-rings">
+                <span />
+                <span />
+                <span />
+              </span>
+              <span className="live-label">
+                {isTranscribing ? 'Transcribing…' : 'Listening…'}
+              </span>
+              <span className="elapsed">{formatElapsed(elapsed)}</span>
+              <span className="elapsed-max">/ 20:00</span>
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div className="error-toast">
+            <span>⚠ {error}</span>
+            <button onClick={() => setError(null)}>✕</button>
+          </div>
+        )}
+
+        <section className="transcript-section">
+          <div className="ts-header">
+            <span className="ts-title">Transcript</span>
+            <div className="ts-actions">
+              <button
+                className="ts-btn"
+                onClick={() => navigator.clipboard.writeText(fullText)}
+                disabled={!transcript.length}
+              >
+                Copy
+              </button>
+              <button
+                className="ts-btn"
+                onClick={() => setTranscript([])}
+                disabled={!transcript.length}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div className="ts-box">
+            {transcript.length === 0 ? (
+              <p className="ts-empty">
+                {isRecording ? 'Speak now…' : 'Press Record to begin.'}
+              </p>
+            ) : (
+              <>
+                <p className="ts-full">{fullText}</p>
+                <div className="ts-timeline">
+                  {transcript.map((chunk) => (
+                    <div key={chunk.id} className="ts-chunk">
+                      <span className="ts-time">
+                        {chunk.timestamp.toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
+                      </span>
+                      {chunk.language && (
+                        <span className="ts-lang">{chunk.language}</span>
+                      )}
+                      <span className="ts-chunk-text">{chunk.text}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <div ref={transcriptEndRef} />
+          </div>
+        </section>
+      </main>
     </div>
   )
 }
-
-export default App
