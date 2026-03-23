@@ -1,0 +1,103 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speech-to-text-server"
+version = "0.1.0"
+description = "Local FastAPI server for Qwen3-ASR-1.7B"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    # Web framework
+    "fastapi>=0.95",
+    "uvicorn[standard]>=0.22",
+
+    # Machine learning / model runtime
+    # Use a transformers release compatible with available qwen-asr packages
+    # FIXME: Pin version once https://github.com/huggingface/transformers/pull/43838 is merged and released
+    "transformers @ git+https://github.com/huggingface/transformers.git",
+    "torch",
+
+    # Audio and file handling
+    "soundfile",
+    "aiofiles",
+    "python-multipart>=0.0.22",
+
+    # Configuration and settings
+    "pydantic>=2",
+    "pydantic-settings>=2",
+]
+
+[project.optional-dependencies]
+dev = [
+    # # Testing
+    # "pytest>=9",
+    # "pytest-cov>=7",
+    # "pytest-mock>=3",
+
+    # Code quality
+    "ruff>=0.5",
+
+    # # Training monitoring
+    # "tensorboard>=2",
+
+    # # Notebooks
+    # "jupyter>=1",
+    # "ipykernel>=7",
+    # "seaborn>=0.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    ".eggs",
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    "data",
+    "models",
+    "outputs",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ANN", # flake8-annotations (type hints)
+]
+ignore = [
+    "E501", # line too long (handled by formatter)
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*.py" = ["ANN"] # Don't require type hints in tests
+
+# Pyright configuration moved to pyrightconfig.json for better organization
+# Pylance automatically reads pyrightconfig.json - no duplication needed
+
+[dependency-groups]
+dev = ["poethepoet>=0.40", "pydeps>=3.0", "pyright>=1.1"]
+
+[tool.poe.tasks]
+setup = { shell = "cp .env.example .env && echo '.env created! Edit it with your HF_TOKEN.'", help = "Create .env file from template" }
+start = "uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir src"
+
+lint = { cmd = "ruff check .", help = "Check code style and quality (Call with `--fix` to auto-fix)" }
+format = { cmd = "ruff format .", help = "Format code with ruff" }
+typecheck = { cmd = "pyright", help = "Run type checking" }

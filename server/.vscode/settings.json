@@ -1,0 +1,10 @@
+{
+  // Python interpreter (project-specific) - ensures team uses .venv
+  "python.defaultInterpreterPath": ".venv/bin/python",
+
+  // Check entire workspace, not just open files (default: "openFilesOnly")
+  // Without this: type errors only show in files you have open
+  "python.analysis.diagnosticMode": "workspace"
+
+  // Note: Pylance automatically reads pyrightconfig.json for all type checking rules
+}
