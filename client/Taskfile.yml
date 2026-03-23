@@ -1,0 +1,9 @@
+version: '3'
+
+silent: true
+
+tasks:
+  ngrok:
+    desc: Start ngrok tunnels defined
+    cmds:
+      - ngrok http --domain=nicely-tops-terrapin.ngrok-free.app 5173
