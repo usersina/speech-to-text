@@ -6,4 +6,4 @@ tasks:
   ngrok:
     desc: Start ngrok tunnels defined
     cmds:
-      - ngrok http --domain=nicely-tops-terrapin.ngrok-free.app 5173
+      - ngrok http --url=nicely-tops-terrapin.ngrok-free.app 5173
