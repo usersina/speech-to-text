@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Select from 'react-select'
 
-const API_BASE = 'http://localhost:8000'
-
 interface LanguageOption {
   value: string | null
   label: string
@@ -41,7 +39,7 @@ export default function App() {
   useEffect(() => {
     const check = async () => {
       try {
-        const res = await fetch(`${API_BASE}/health`)
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/health`)
         setServerOnline(res.ok)
       } catch {
         setServerOnline(false)
@@ -55,7 +53,7 @@ export default function App() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`${API_BASE}/languages`)
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/languages`)
         const data = await res.json()
         const opts: LanguageOption[] = (data.languages as string[]).map(
           (l) => ({
@@ -85,7 +83,7 @@ export default function App() {
         if (selectedLanguage.value)
           form.append('language', selectedLanguage.value)
 
-        const res = await fetch(`${API_BASE}/transcribe`, {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/transcribe`, {
           method: 'POST',
           body: form,
         })
