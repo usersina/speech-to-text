@@ -1,0 +1,19 @@
+{
+  "folders": [
+    {
+      "name": "root",
+      "path": ".",
+    },
+    {
+      "name": "server",
+      "path": "server",
+    },
+    {
+      "name": "client",
+      "path": "client",
+    },
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "server/.venv/bin/python",
+  },
+}
