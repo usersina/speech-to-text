@@ -14,9 +14,7 @@ dependencies = [
     "uvicorn[standard]>=0.22",
 
     # Machine learning / model runtime
-    # Use a transformers release compatible with available qwen-asr packages
-    # FIXME: Pin version once https://github.com/huggingface/transformers/pull/43838 is merged and released
-    "transformers @ git+https://github.com/huggingface/transformers.git",
+    "qwen-asr>=0.0.6",
     "torch",
 
     # Audio and file handling

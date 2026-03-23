@@ -1,7 +1,5 @@
 # Local inference server for Qwen3-ASR-1.7B
 
-> FIXME: Pin version once https://github.com/huggingface/transformers/pull/43838 is merged and released
-
 This folder contains a minimal FastAPI server that hosts a Hugging Face ASR model locally.
 
 Quick start
@@ -33,6 +31,10 @@ poe start
 ```
 
 Testing the API
+
+```bash
+curl http://127.0.0.1:8000/health
+```
 
 - Quick curl test (multipart file field named `file`):
 
