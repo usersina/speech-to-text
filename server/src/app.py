@@ -6,7 +6,8 @@ from typing import Any
 
 import torch
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from qwen_asr import Qwen3ASRModel
 
@@ -14,6 +15,41 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".webm"}
+
+# Full list of languages supported by Qwen3-ASR
+# https://huggingface.co/Qwen/Qwen3-ASR-1.7B
+_SUPPORTED_LANGUAGES = {
+    "Chinese",
+    "English",
+    "Cantonese",
+    "Arabic",
+    "German",
+    "French",
+    "Spanish",
+    "Portuguese",
+    "Indonesian",
+    "Italian",
+    "Korean",
+    "Russian",
+    "Thai",
+    "Vietnamese",
+    "Japanese",
+    "Turkish",
+    "Hindi",
+    "Malay",
+    "Dutch",
+    "Swedish",
+    "Danish",
+    "Finnish",
+    "Polish",
+    "Czech",
+    "Filipino",
+    "Persian",
+    "Greek",
+    "Hungarian",
+    "Macedonian",
+    "Romanian",
+}
 
 
 class Config(BaseSettings):
@@ -54,6 +90,12 @@ async def lifespan(app: FastAPI):  # noqa: ANN201
 
 
 app = FastAPI(title="Speech-to-Text API", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -61,8 +103,16 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "model": settings.HF_MODEL}
 
 
+@app.get("/languages")
+async def languages() -> dict[str, list[str]]:
+    return {"languages": sorted(_SUPPORTED_LANGUAGES)}
+
+
 @app.post("/transcribe")
-async def transcribe(file: UploadFile = File(...)) -> dict[str, str | None]:
+async def transcribe(
+    file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+) -> dict[str, str | None]:
     filename = file.filename or ""
     suffix = os.path.splitext(filename)[1].lower() or ".wav"
 
@@ -72,17 +122,28 @@ async def transcribe(file: UploadFile = File(...)) -> dict[str, str | None]:
             detail=f"Unsupported file type '{suffix}'. Supported: {sorted(_SUPPORTED_EXTENSIONS)}",
         )
 
+    if language is not None and language not in _SUPPORTED_LANGUAGES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported language '{language}'. Supported: {sorted(_SUPPORTED_LANGUAGES)}",
+        )
+
     tmp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(await file.read())
             tmp_path = tmp.name
 
-        logger.info("Transcribing file: %s (%s)", filename, suffix)
-        results = get_model().transcribe(audio=tmp_path, language=None)
+        logger.info("Transcribing file: %s (%s) language=%s", filename, suffix, language or "auto")
+        results = get_model().transcribe(audio=tmp_path, language=language)
         text = results[0].text if results else None
-        logger.info("Transcription complete. Characters: %d", len(text) if text else 0)
-        return {"text": text}
+        detected_language = results[0].language if results else None
+        logger.info(
+            "Transcription complete. language=%s characters=%d",
+            detected_language,
+            len(text) if text else 0,
+        )
+        return {"text": text, "language": detected_language}
 
     except HTTPException:
         raise
