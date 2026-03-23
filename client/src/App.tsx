@@ -230,8 +230,14 @@ export default function App() {
           <button
             className={`rec-btn ${isRecording ? 'active' : ''}`}
             onClick={isRecording ? stopRecording : startRecording}
-            disabled={serverOnline === false}
-            aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+            disabled={serverOnline === false || isTranscribing}
+            aria-label={
+              isTranscribing
+                ? 'Transcribing'
+                : isRecording
+                  ? 'Stop recording'
+                  : 'Start recording'
+            }
           >
             <span className="rec-icon">
               {isRecording ? (
@@ -254,7 +260,13 @@ export default function App() {
                 </svg>
               )}
             </span>
-            <span>{isRecording ? 'Stop' : 'Start'}</span>
+            <span>
+              {isTranscribing
+                ? 'Transcribing…'
+                : isRecording
+                  ? 'Stop'
+                  : 'Start'}
+            </span>
           </button>
 
           {isRecording && (
