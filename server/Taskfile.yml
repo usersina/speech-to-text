@@ -1,0 +1,69 @@
+version: '3'
+
+silent: true
+
+includes:
+  colors: ../Taskfile.colors.yml
+
+vars:
+  IMAGE_NAME: speech-to-text-server
+  VERSION: latest
+  # CONTAINER_REGISTRY: # docker.io
+  # CONTAINER_REGISTRY_USERNAME: # usersina
+  # CONTAINER_REGISTRY_PASSWORD: # password
+
+tasks:
+  build:
+    desc: Build the docker image
+    cmds:
+      - printf "{{.COLOR_GREEN}}Building the image...{{.COLOR_RESET}}\n"
+      - docker build -f ./Dockerfile -t {{.IMAGE_NAME}}:{{.VERSION}} .
+
+  push:
+    desc: Push the docker image to the registry
+    vars:
+      REMOTE_TAG: '{{.CONTAINER_REGISTRY}}/{{.CONTAINER_REGISTRY_USERNAME}}/{{.IMAGE_NAME}}:{{.VERSION}}'
+    requires:
+      vars:
+        - CONTAINER_REGISTRY
+        - CONTAINER_REGISTRY_USERNAME
+    cmds:
+      - task: registry-login
+      - docker tag {{.IMAGE_NAME}}:{{.VERSION}} {{.REMOTE_TAG}}
+      - printf "{{.COLOR_GREEN}}Pushing {{.REMOTE_TAG}}...{{.COLOR_RESET}}\n"
+      - docker push {{.REMOTE_TAG}}
+      - task: registry-logout
+
+  quick-test:
+    cmds:
+      - docker stop {{.IMAGE_NAME}} || true
+      - docker rm {{.IMAGE_NAME}} || true
+      - |
+        docker run --rm -p 8000:8000 \
+          --name speech-to-text-server \
+          --env-file .env \
+          {{.IMAGE_NAME}}:{{.VERSION}}
+
+  registry-login:
+    desc: Login to the container registry
+    internal: true
+    cmds:
+      - |
+        if [ -n "{{.CONTAINER_REGISTRY_PASSWORD}}" ]; then
+          printf "{{.COLOR_GREEN}}Logging in to {{.CONTAINER_REGISTRY}}...{{.COLOR_RESET}}\n"
+          echo {{.CONTAINER_REGISTRY_PASSWORD}} | docker login -u {{.CONTAINER_REGISTRY_USERNAME}} --password-stdin {{.CONTAINER_REGISTRY}}
+        else
+          printf "{{.COLOR_YELLOW}}No password provided for the container registry. Not logging in.{{.COLOR_RESET}}\n"
+        fi
+
+  registry-logout:
+    desc: Logout from the container registry
+    internal: true
+    cmds:
+      - |
+        if [ -n "{{.CONTAINER_REGISTRY_PASSWORD}}" ]; then
+          printf "{{.COLOR_GREEN}}Logging out from {{.CONTAINER_REGISTRY}}...{{.COLOR_RESET}}\n"
+          docker logout {{.CONTAINER_REGISTRY}}
+        else
+          printf "{{.COLOR_YELLOW}}No password provided for the container registry. Not logging out.{{.COLOR_RESET}}\n"
+        fi
